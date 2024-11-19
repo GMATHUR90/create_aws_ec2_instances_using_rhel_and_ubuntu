@@ -1,52 +1,147 @@
 #!/bin/bash
 
-# Fetch the default region from AWS CLI configuration
+# Variables
+INSTANCE_TYPE="t3.medium"          # Instance type
+AMI_ID="ami-0583d8c7a9c35822c"    # AMI ID for Amazon Machine Image
+KEY_NAME="auto_generated_key"     # Dynamic key pair name
+TAG_NAME="aws_test_instance"      # Name tag for the instance
+
+# Fetch default AWS region
+echo "Fetching default AWS region..."
 DEFAULT_REGION=$(aws configure get region)
 
 if [ -z "$DEFAULT_REGION" ]; then
-  echo "AWS default region is not configured. Please configure it using 'aws configure'."
-  exit 1
+    echo "Default region is not configured. Set it using 'aws configure set region <region-name>' or export AWS_REGION."
+    exit 1
+fi
+echo "Default region: $DEFAULT_REGION"
+
+# Create Key Pair
+echo "Creating a new key pair..."
+KEY_FILE="${KEY_NAME}.pem"
+aws ec2 create-key-pair \
+    --key-name $KEY_NAME \
+    --query 'KeyMaterial' \
+    --output text > $KEY_FILE
+
+if [ $? -eq 0 ]; then
+    chmod 400 $KEY_FILE
+    echo "Key pair created successfully: $KEY_FILE"
+else
+    echo "Failed to create key pair."
+    exit 1
 fi
 
-echo "Using AWS region: $DEFAULT_REGION"
+# Fetch VPC ID (assuming the first VPC is the default one)
+echo "Fetching VPC ID..."
+VPC_ID=$(aws ec2 describe-vpcs \
+    --query 'Vpcs[0].VpcId' \
+    --output text)
 
-# Fetch VPC ID
-VPC_ID=$(aws ec2 describe-vpcs --query 'Vpcs[0].VpcId' --output text --region "$DEFAULT_REGION")
-if [ "$VPC_ID" == "None" ]; then
-  echo "No VPCs found in the region $DEFAULT_REGION."
-  exit 1
+if [ $? -eq 0 ]; then
+    echo "VPC ID fetched successfully: $VPC_ID"
+else
+    echo "Failed to fetch VPC ID."
+    exit 1
 fi
-echo "VPC ID: $VPC_ID"
 
-# Fetch Subnet ID
-SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query 'Subnets[0].SubnetId' --output text --region "$DEFAULT_REGION")
-if [ "$SUBNET_ID" == "None" ]; then
-  echo "No Subnets found in the VPC $VPC_ID."
-  exit 1
+# Fetch Subnet ID (using the first available subnet in the VPC)
+echo "Fetching Subnet ID..."
+SUBNET_ID=$(aws ec2 describe-subnets \
+    --filters "Name=vpc-id,Values=$VPC_ID" \
+    --query 'Subnets[0].SubnetId' \
+    --output text)
+
+if [ $? -eq 0 ]; then
+    echo "Subnet ID fetched successfully: $SUBNET_ID"
+else
+    echo "Failed to fetch Subnet ID."
+    exit 1
 fi
-echo "Subnet ID: $SUBNET_ID"
+
+# Configure Storage Volumes (using gp3)
+BLOCK_DEVICE_MAPPINGS='[
+    {
+        "DeviceName": "/dev/xvda",
+        "Ebs": {
+            "VolumeSize": 10,
+            "DeleteOnTermination": true,
+            "VolumeType": "gp3"
+        }
+    },
+    {
+        "DeviceName": "/dev/xvdb",
+        "Ebs": {
+            "VolumeSize": 12,
+            "DeleteOnTermination": true,
+            "VolumeType": "gp3"
+        }
+    },
+    {
+        "DeviceName": "/dev/xvdc",
+        "Ebs": {
+            "VolumeSize": 18,
+            "DeleteOnTermination": true,
+            "VolumeType": "gp3"
+        }
+    }
+]'
 
 # Create Security Group
-SECURITY_GROUP_NAME="aws_test_11_sg"
-SG_DESCRIPTION="Security group for aws_test_11"
-SG_ID=$(aws ec2 create-security-group --group-name "$SECURITY_GROUP_NAME" --description "$SG_DESCRIPTION" --vpc-id "$VPC_ID" --query 'GroupId' --output text --region "$DEFAULT_REGION")
-echo "Security Group ID: $SG_ID"
+echo "Creating security group..."
+SECURITY_GROUP_ID=$(aws ec2 create-security-group \
+    --group-name aws_test_sg \
+    --description "Security group for SSH, HTTP, HTTPS access" \
+    --vpc-id $VPC_ID \
+    --query 'GroupId' \
+    --output text)
 
-# Add Ingress Rules to Security Group
-aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 22 --cidr 0.0.0.0/0 --region "$DEFAULT_REGION"
-aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 80 --cidr 0.0.0.0/0 --region "$DEFAULT_REGION"
-aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 443 --cidr 0.0.0.0/0 --region "$DEFAULT_REGION"
-echo "Ingress rules added to Security Group $SECURITY_GROUP_NAME."
+if [ $? -eq 0 ]; then
+    echo "Security group created successfully. Group ID: $SECURITY_GROUP_ID"
+else
+    echo "Failed to create security group."
+    exit 1
+fi
 
-# Launch EC2 Instance
-INSTANCE_NAME="aws_test_11"
-AMI_ID="ami-0583d8c7a9c35822c"
-INSTANCE_TYPE="t3.medium"
-KEY_NAME="aws_test_11"
-INSTANCE_ID=$(aws ec2 run-instances --image-id "$AMI_ID" --instance-type "$INSTANCE_TYPE" --key-name "$KEY_NAME" --security-group-ids "$SG_ID" --subnet-id "$SUBNET_ID" --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":10,"VolumeType":"gp3"}},{"DeviceName":"/dev/xvdb","Ebs":{"VolumeSize":12,"VolumeType":"gp3"}},{"DeviceName":"/dev/xvdc","Ebs":{"VolumeSize":18,"VolumeType":"gp3"}}]' --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$INSTANCE_NAME}]" --query 'Instances[0].InstanceId' --output text --region "$DEFAULT_REGION")
-echo "EC2 Instance ID: $INSTANCE_ID"
+# Add Rules to Security Group
+echo "Adding rules to the security group..."
+aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 22 --cidr 0.0.0.0/0   # SSH
+aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 80 --cidr 0.0.0.0/0   # HTTP
+aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 443 --cidr 0.0.0.0/0  # HTTPS
 
-# Fetch Public IP Address
-PUBLIC_IP=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text --region "$DEFAULT_REGION")
-echo "Public IP Address: $PUBLIC_IP"
+if [ $? -eq 0 ]; then
+    echo "Rules added to the security group successfully."
+else
+    echo "Failed to add rules to the security group."
+    exit 1
+fi
+
+# Create EC2 Instance
+echo "Creating EC2 instance..."
+INSTANCE_ID=$(aws ec2 run-instances \
+    --image-id $AMI_ID \
+    --instance-type $INSTANCE_TYPE \
+    --key-name $KEY_NAME \
+    --security-group-ids $SECURITY_GROUP_ID \
+    --subnet-id $SUBNET_ID \
+    --block-device-mappings "$BLOCK_DEVICE_MAPPINGS" \
+    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$TAG_NAME}]" \
+    --query 'Instances[0].InstanceId' \
+    --output text)
+
+if [ $? -eq 0 ]; then
+    echo "EC2 Instance created successfully. Instance ID: $INSTANCE_ID"
+else
+    echo "Failed to create EC2 instance."
+    exit 1
+fi
+
+# Retrieve Public IP
+echo "Retrieving public IP address of the instance..."
+PUBLIC_IP=$(aws ec2 describe-instances \
+    --instance-ids $INSTANCE_ID \
+    --query 'Reservations[0].Instances[0].PublicIpAddress' \
+    --output text)
+
+echo "Instance Public IP: $PUBLIC_IP"
 
