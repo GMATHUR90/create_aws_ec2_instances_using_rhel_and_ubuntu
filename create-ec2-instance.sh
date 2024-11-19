@@ -3,8 +3,8 @@
 # Variables
 INSTANCE_TYPE="t3.medium"          # Instance type
 AMI_ID="ami-0583d8c7a9c35822c"    # AMI ID for Amazon Machine Image
-KEY_NAME="aws_test_1"             # Key pair name
-TAG_NAME="aws_test_1"             # Name tag for the instance
+KEY_NAME="aws_test_11"             # Key pair name
+TAG_NAME="aws_test_11"             # Name tag for the instance
 
 # Fetch VPC ID (assuming the first VPC is the default one)
 echo "Fetching VPC ID..."
