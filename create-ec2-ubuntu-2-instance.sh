@@ -91,7 +91,7 @@ BLOCK_DEVICE_MAPPINGS='[
 echo "Creating security group..."
 SECURITY_GROUP_ID=$(aws ec2 create-security-group \
     --group-name aws_test_sg \
-    --description "Security group for SSH, HTTP, HTTPS access" \
+    --description "Security group for SSH, HTTP, HTTPS, and Kubernetes API access" \
     --vpc-id $VPC_ID \
     --query 'GroupId' \
     --output text)
@@ -108,6 +108,7 @@ echo "Adding rules to the security group..."
 aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 22 --cidr 0.0.0.0/0   # SSH
 aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 80 --cidr 0.0.0.0/0   # HTTP
 aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 443 --cidr 0.0.0.0/0  # HTTPS
+aws ec2 authorize-security-group-ingress --group-id $SECURITY_GROUP_ID --protocol tcp --port 6443 --cidr 0.0.0.0/0 # Kubernetes API Server
 
 if [ $? -eq 0 ]; then
     echo "Rules added to the security group successfully."
