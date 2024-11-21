@@ -116,31 +116,48 @@ else
     exit 1
 fi
 
-# Create EC2 Instances
-echo "Creating EC2 instances..."
-INSTANCE_IDS=$(aws ec2 run-instances \
+# Create EC2 Instances one by one with unique tags
+echo "Creating EC2 instance 1..."
+INSTANCE_ID_1=$(aws ec2 run-instances \
     --image-id $AMI_ID \
     --instance-type $INSTANCE_TYPE \
     --key-name $KEY_NAME \
     --security-group-ids $SECURITY_GROUP_ID \
     --subnet-id $SUBNET_ID \
     --block-device-mappings "$BLOCK_DEVICE_MAPPINGS" \
-    --count 2 \
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${TAG_NAME_BASE}_1},{Key=Name,Value=${TAG_NAME_BASE}_2}]" \
-    --query 'Instances[*].InstanceId' \
+    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${TAG_NAME_BASE}_1}]" \
+    --query 'Instances[0].InstanceId' \
     --output text)
 
 if [ $? -eq 0 ]; then
-    echo "EC2 Instances created successfully. Instance IDs: $INSTANCE_IDS"
+    echo "EC2 Instance 1 created successfully. Instance ID: $INSTANCE_ID_1"
 else
-    echo "Failed to create EC2 instances."
+    echo "Failed to create EC2 Instance 1."
+    exit 1
+fi
+
+echo "Creating EC2 instance 2..."
+INSTANCE_ID_2=$(aws ec2 run-instances \
+    --image-id $AMI_ID \
+    --instance-type $INSTANCE_TYPE \
+    --key-name $KEY_NAME \
+    --security-group-ids $SECURITY_GROUP_ID \
+    --subnet-id $SUBNET_ID \
+    --block-device-mappings "$BLOCK_DEVICE_MAPPINGS" \
+    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${TAG_NAME_BASE}_2}]" \
+    --query 'Instances[0].InstanceId' \
+    --output text)
+
+if [ $? -eq 0 ]; then
+    echo "EC2 Instance 2 created successfully. Instance ID: $INSTANCE_ID_2"
+else
+    echo "Failed to create EC2 Instance 2."
     exit 1
 fi
 
 # Retrieve Public IPs
 echo "Retrieving public IP addresses of the instances..."
-INSTANCE_IDS_ARRAY=($INSTANCE_IDS)
-for ID in "${INSTANCE_IDS_ARRAY[@]}"; do
+for ID in $INSTANCE_ID_1 $INSTANCE_ID_2; do
     PUBLIC_IP=$(aws ec2 describe-instances \
         --instance-ids $ID \
         --query 'Reservations[0].Instances[0].PublicIpAddress' \
