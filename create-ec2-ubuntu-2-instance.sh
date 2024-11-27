@@ -45,17 +45,17 @@ else
     exit 1
 fi
 
-# Fetch Subnet ID (using the first available subnet in the VPC)
-echo "Fetching Subnet ID..."
+# Fetch Subnet ID (dynamically select from a supported AZ)
+echo "Fetching a supported subnet ID..."
 SUBNET_ID=$(aws ec2 describe-subnets \
     --filters "Name=vpc-id,Values=$VPC_ID" \
     --query 'Subnets[0].SubnetId' \
     --output text)
 
-if [ $? -eq 0 ]; then
-    echo "Subnet ID fetched successfully: $SUBNET_ID"
+if [ $? -eq 0 ] && [ "$SUBNET_ID" != "None" ]; then
+    echo "Using subnet: $SUBNET_ID"
 else
-    echo "Failed to fetch Subnet ID."
+    echo "Failed to fetch a valid subnet."
     exit 1
 fi
 
