@@ -16,19 +16,6 @@ if [ -z "$DEFAULT_REGION" ]; then
 fi
 echo "Default region: $DEFAULT_REGION"
 
-# Validate Instance Type Availability
-echo "Validating instance type $INSTANCE_TYPE in region $DEFAULT_REGION..."
-INSTANCE_SUPPORTED=$(aws ec2 describe-instance-type-offerings \
-    --location-type region \
-    --filters Name=instance-type,Values=$INSTANCE_TYPE \
-    --query 'InstanceTypeOfferings[?InstanceType==`'$INSTANCE_TYPE'`]' \
-    --output text)
-
-if [ -z "$INSTANCE_SUPPORTED" ]; then
-    echo "Instance type $INSTANCE_TYPE is not supported in region $DEFAULT_REGION."
-    exit 1
-fi
-
 # Create Key Pair
 echo "Creating a new key pair..."
 KEY_FILE="${KEY_NAME}.pem"
@@ -58,17 +45,21 @@ else
     exit 1
 fi
 
-# Fetch Subnet ID (using the first available subnet in the VPC)
-echo "Fetching Subnet ID..."
-SUBNET_ID=$(aws ec2 describe-subnets \
+# Fetch Subnet ID and its associated Availability Zone
+echo "Fetching Subnet ID and its associated Availability Zone..."
+SUBNET_INFO=$(aws ec2 describe-subnets \
     --filters "Name=vpc-id,Values=$VPC_ID" \
-    --query 'Subnets[0].SubnetId' \
+    --query 'Subnets[0].[SubnetId, AvailabilityZone]' \
     --output text)
 
-if [ $? -eq 0 ]; then
-    echo "Subnet ID fetched successfully: $SUBNET_ID"
+SUBNET_ID=$(echo "$SUBNET_INFO" | awk '{print $1}')
+SUBNET_AZ=$(echo "$SUBNET_INFO" | awk '{print $2}')
+
+if [ -n "$SUBNET_ID" ] && [ -n "$SUBNET_AZ" ]; then
+    echo "Subnet ID: $SUBNET_ID"
+    echo "Subnet Availability Zone: $SUBNET_AZ"
 else
-    echo "Failed to fetch Subnet ID."
+    echo "Failed to fetch Subnet ID or Availability Zone."
     exit 1
 fi
 
@@ -99,20 +90,6 @@ BLOCK_DEVICE_MAPPINGS='[
         }
     }
 ]'
-
-# Fetch Default Availability Zone for Instance Type
-echo "Checking available zones for instance type $INSTANCE_TYPE..."
-AVAILABLE_ZONE=$(aws ec2 describe-instance-type-offerings \
-    --location-type availability-zone \
-    --filters Name=instance-type,Values=$INSTANCE_TYPE \
-    --query 'InstanceTypeOfferings[0].Location' \
-    --output text)
-
-if [ -z "$AVAILABLE_ZONE" ]; then
-    echo "No available zones found for instance type $INSTANCE_TYPE."
-    exit 1
-fi
-echo "Selected Availability Zone: $AVAILABLE_ZONE"
 
 # Create Security Group
 echo "Creating security group..."
@@ -152,7 +129,7 @@ INSTANCE_ID=$(aws ec2 run-instances \
     --security-group-ids $SECURITY_GROUP_ID \
     --subnet-id $SUBNET_ID \
     --block-device-mappings "$BLOCK_DEVICE_MAPPINGS" \
-    --placement "AvailabilityZone=$AVAILABLE_ZONE" \
+    --placement "AvailabilityZone=$SUBNET_AZ" \
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$TAG_NAME}]" \
     --query 'Instances[0].InstanceId' \
     --output text)
@@ -171,5 +148,12 @@ PUBLIC_IP=$(aws ec2 describe-instances \
     --query 'Reservations[0].Instances[0].PublicIpAddress' \
     --output text)
 
-echo "Instance Public IP: $PUBLIC_IP"
+if [ $? -eq 0 ]; then
+    echo "Instance Public IP: $PUBLIC_IP"
+else
+    echo "Failed to retrieve public IP address."
+    exit 1
+fi
+
+echo "EC2 instance created successfully with Public IP: $PUBLIC_IP"
 
