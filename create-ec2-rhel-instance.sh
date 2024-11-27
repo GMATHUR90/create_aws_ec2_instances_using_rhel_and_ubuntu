@@ -16,6 +16,19 @@ if [ -z "$DEFAULT_REGION" ]; then
 fi
 echo "Default region: $DEFAULT_REGION"
 
+# Validate Instance Type Availability
+echo "Validating instance type $INSTANCE_TYPE in region $DEFAULT_REGION..."
+INSTANCE_SUPPORTED=$(aws ec2 describe-instance-type-offerings \
+    --location-type region \
+    --filters Name=instance-type,Values=$INSTANCE_TYPE \
+    --query 'InstanceTypeOfferings[?InstanceType==`'$INSTANCE_TYPE'`]' \
+    --output text)
+
+if [ -z "$INSTANCE_SUPPORTED" ]; then
+    echo "Instance type $INSTANCE_TYPE is not supported in region $DEFAULT_REGION."
+    exit 1
+fi
+
 # Create Key Pair
 echo "Creating a new key pair..."
 KEY_FILE="${KEY_NAME}.pem"
@@ -87,6 +100,20 @@ BLOCK_DEVICE_MAPPINGS='[
     }
 ]'
 
+# Fetch Default Availability Zone for Instance Type
+echo "Checking available zones for instance type $INSTANCE_TYPE..."
+AVAILABLE_ZONE=$(aws ec2 describe-instance-type-offerings \
+    --location-type availability-zone \
+    --filters Name=instance-type,Values=$INSTANCE_TYPE \
+    --query 'InstanceTypeOfferings[0].Location' \
+    --output text)
+
+if [ -z "$AVAILABLE_ZONE" ]; then
+    echo "No available zones found for instance type $INSTANCE_TYPE."
+    exit 1
+fi
+echo "Selected Availability Zone: $AVAILABLE_ZONE"
+
 # Create Security Group
 echo "Creating security group..."
 SECURITY_GROUP_ID=$(aws ec2 create-security-group \
@@ -125,6 +152,7 @@ INSTANCE_ID=$(aws ec2 run-instances \
     --security-group-ids $SECURITY_GROUP_ID \
     --subnet-id $SUBNET_ID \
     --block-device-mappings "$BLOCK_DEVICE_MAPPINGS" \
+    --placement "AvailabilityZone=$AVAILABLE_ZONE" \
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$TAG_NAME}]" \
     --query 'Instances[0].InstanceId' \
     --output text)
