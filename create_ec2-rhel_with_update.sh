@@ -52,32 +52,41 @@ KEY_NAME=$(create_key_pair "$BASE_KEY_NAME")
 SECURITY_GROUP_ID=$(create_security_group "$BASE_SECURITY_GROUP_NAME")
 
 # Step 3: Launch the EC2 instance
-echo "Launching RHEL EC2 instance with key pair $KEY_NAME and security group $SECURITY_GROUP_ID"
-INSTANCE_ID=$(aws ec2 run-instances \
-  --image-id "$AMI_ID" \
-  --count 1 \
-  --instance-type "$INSTANCE_TYPE" \
-  --key-name "$KEY_NAME" \
-  --security-group-ids "$SECURITY_GROUP_ID" \
-  --subnet-id "$SUBNET_ID" \
-  --query 'Instances[0].InstanceId' \
-  --output text)
+if [[ -n "$SUBNET_ID" ]]; then
+  echo "Launching RHEL EC2 instance with key pair $KEY_NAME and security group $SECURITY_GROUP_ID"
+  INSTANCE_ID=$(aws ec2 run-instances \
+    --image-id "$AMI_ID" \
+    --count 1 \
+    --instance-type "$INSTANCE_TYPE" \
+    --key-name "$KEY_NAME" \
+    --security-group-ids "$SECURITY_GROUP_ID" \
+    --subnet-id "$SUBNET_ID" \
+    --query 'Instances[0].InstanceId' \
+    --output text)
+else
+  echo "Error: SUBNET_ID is not set. Please provide a valid subnet ID."
+  exit 1
+fi
 
-echo "Instance launched. Instance ID: $INSTANCE_ID"
+if [[ -n "$INSTANCE_ID" && "$INSTANCE_ID" != "null" ]]; then
+  echo "Instance launched. Instance ID: $INSTANCE_ID"
 
-# Step 4: Wait for the instance to be in 'running' state
-echo "Waiting for the instance to be in 'running' state..."
-aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
-echo "Instance is now running."
+  # Step 4: Wait for the instance to be in 'running' state
+  echo "Waiting for the instance to be in 'running' state..."
+  aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+  echo "Instance is now running."
 
-# Step 5: Get the public IP of the instance
-PUBLIC_IP=$(aws ec2 describe-instances \
-  --instance-ids "$INSTANCE_ID" \
-  --query 'Reservations[0].Instances[0].PublicIpAddress' \
-  --output text)
+  # Step 5: Get the public IP of the instance
+  PUBLIC_IP=$(aws ec2 describe-instances \
+    --instance-ids "$INSTANCE_ID" \
+    --query 'Reservations[0].Instances[0].PublicIpAddress' \
+    --output text)
 
-echo "Instance public IP: $PUBLIC_IP"
+  echo "Instance public IP: $PUBLIC_IP"
 
-echo "You can SSH into the instance using:"
-echo "ssh -i ${KEY_NAME}.pem ec2-user@$PUBLIC_IP"
+  echo "You can SSH into the instance using:"
+  echo "ssh -i ${KEY_NAME}.pem ec2-user@$PUBLIC_IP"
+else
+  echo "Error: Failed to launch the instance. Please check the parameters and try again."
+fi
 
